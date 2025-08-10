@@ -121,11 +121,11 @@ export default class PricesTfPricer implements IPricer {
             sku: item.sku,
             buy: new Currencies({
                 keys: item.buy.keys,
-                metal: item.buy.metal
+                metal: Currencies.toRefined(item.buyHalfScrap / 2)
             }),
             sell: new Currencies({
                 keys: item.sell.keys,
-                metal: item.sell.metal
+                metal: Currencies.toRefined(item.sellHalfScrap / 2)
             }),
             source: 'pricedb.io',
             time: item.time
