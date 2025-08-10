@@ -12,11 +12,10 @@ import log from '../../logger';
 
 export default class PricesTfPricer implements IPricer {
     private socketManager: PricesTfSocketManager;
-
     private attempts = 0;
 
     public constructor(private api: PricesTfApi) {
-        this.socketManager = new PricesTfSocketManager(api);
+        this.socketManager = new PricesTfSocketManager();
     }
 
     getOptions(): PricerOptions {
@@ -28,37 +27,13 @@ export default class PricesTfPricer implements IPricer {
             const response = await this.api.getPrice(sku);
             return this.parsePrices2Item(response);
         } catch (err) {
-            log.warn('Error getting item prices from prices.tf, trying to get from autobot.tf...');
-            const response = await PricesTfApi.apiRequest(
-                'GET',
-                `/json/items/${sku}`,
-                undefined,
-                undefined,
-                undefined,
-                'https://autobot.tf'
-            );
-
-            return response;
+            log.warn('Error getting item prices from pricedb.io:', err);
+            throw err;
         }
     }
 
     async getPricelist(): Promise<GetPricelistResponse> {
-        try {
-            const pricelist = await PricesTfApi.apiRequest(
-                'GET',
-                '/json/pricelist-array',
-                undefined,
-                undefined,
-                undefined,
-                'https://autobot.tf'
-            );
-
-            return pricelist;
-        } catch (err) {
-            log.error('Failed to get pricelist from autobot.tf: ', err);
-        }
-
-        let prices: PricesTfItem[] = [];
+         let prices: PricesTfItem[] = [];
         let currentPage = 1;
         let totalPages = 0;
 
@@ -104,9 +79,9 @@ export default class PricesTfPricer implements IPricer {
 
     async requestCheck(sku: string): Promise<RequestCheckResponse> {
         const r = await this.api.requestCheck(sku);
-        if (r.enqueued) {
+        if (r.success) {
             return {
-                sku: sku
+                sku: r.sku
             };
         } else {
             return {
@@ -145,15 +120,15 @@ export default class PricesTfPricer implements IPricer {
         return {
             sku: item.sku,
             buy: new Currencies({
-                keys: item.buyKeys,
-                metal: Currencies.toRefined(item.buyHalfScrap / 2)
+                keys: item.buy.keys,
+                metal: item.buy.metal
             }),
             sell: new Currencies({
-                keys: item.sellKeys,
-                metal: Currencies.toRefined(item.sellHalfScrap / 2)
+                keys: item.sell.keys,
+                metal: item.sell.metal
             }),
-            source: 'bptf',
-            time: Math.floor(new Date(item.updatedAt).getTime() / 1000)
+            source: 'pricedb.io',
+            time: item.time
         };
     }
 
@@ -174,23 +149,9 @@ export default class PricesTfPricer implements IPricer {
     bindHandlePriceEvent(onPriceChange: (item: GetItemPriceResponse) => void): void {
         this.socketManager.on('message', (message: MessageEvent) => {
             try {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
                 const data = this.parsePricesTfMessageEvent(message.data);
 
-                if (data.type === 'AUTH_REQUIRED') {
-                    // might be nicer to put this elsewhere
-
-                    void this.api.setupToken().then(() => {
-                        this.socketManager.send(
-                            JSON.stringify({
-                                type: 'AUTH',
-                                data: {
-                                    accessToken: this.api.token
-                                }
-                            })
-                        );
-                    });
-                } else if (data.type === 'PRICE_UPDATED') {
+                if (data.type === 'PRICE_UPDATED') {
                     const item = this.parsePriceUpdatedData(data);
                     onPriceChange(item);
                 }
